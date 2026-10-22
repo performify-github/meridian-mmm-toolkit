@@ -1,0 +1,9 @@
+# Validation: can the chosen spec predict weeks it hasn't seen? Three holdouts, from easy to hard.
+# Pick the spec on all three, not on how well it fits the weeks it was shown.
+--sampling standard --holdout random --no-optimise --no-report --no-save --run-id v{date}-random
+--sampling standard --holdout peak_all_geos --no-optimise --no-report --no-save --run-id v{date}-peak-all-geos
+--sampling standard --holdout peak_one_geo --no-optimise --no-report --no-save --run-id v{date}-peak-one-geo
+# The same three without a demand control: if ROI jumps for the lower-funnel channels, demand was doing the work.
+--sampling standard --holdout random --no-demand-control --no-optimise --no-report --no-save --run-id v{date}-random-nodemand
+--sampling standard --holdout peak_all_geos --no-demand-control --no-optimise --no-report --no-save --run-id v{date}-peak-all-geos-nodemand
+--sampling standard --holdout peak_one_geo --no-demand-control --no-optimise --no-report --no-save --run-id v{date}-peak-one-geo-nodemand

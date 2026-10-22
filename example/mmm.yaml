@@ -1,0 +1,290 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Brand config for the Meridian MMM toolkit: a fictional brand, "Example Co".
+#
+# Everything that is specific to one brand lives in this file, and nothing else in
+# the toolkit needs editing. To start a new brand, copy this folder (this file,
+# priors.csv and grids/) into the brand's own repo and work down the file.
+#
+#   python3 mmm/run_mmm.py --config example/mmm.yaml check     # is this file valid?
+#
+# Rule of thumb for every date below: it must be a WEEK START (a Monday, unless you
+# change data.week_start_day). The model counts in whole weeks, and `check` catches
+# a date that isn't one.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── 1. Who ──────────────────────────────────────────────────────────────────
+brand:
+  id: example            # short slug, used in run ids, folder names and schedules
+  name: Example Co       # how the brand appears in reports and the planner
+
+currency:
+  code: GBP
+  symbol: "£"
+
+# ── 2. Where it runs (Google Cloud) ─────────────────────────────────────────
+# Only needed for cloud runs. A local run on a CSV ignores this block.
+# README → "Set up Google Cloud" covers creating each of these.
+gcp:
+  project: your-gcp-project
+  region: europe-west2                       # where the notebooks run
+  bq_location: europe-west2                  # where the BigQuery data lives
+  service_account: mmm-runner@your-gcp-project.iam.gserviceaccount.com
+  bucket: your-mmm-bucket                    # every run's outputs land in gs://<bucket>/<prefix>/
+  prefix: example
+  runtime_templates:                         # Colab Enterprise "machine recipes"
+    cpu: mmm-cpu-n2-8                        # one model fit (8 vCPU is plenty)
+    orchestrator: mmm-orchestrator-n2-2      # the small machine that runs a batch of fits
+  max_parallel: 4                            # fits running at once. Set it from your quotas (README → Quotas)
+
+# ── 3. The data ─────────────────────────────────────────────────────────────
+# The model reads ONE table: a row per geo per week. README → "The input table"
+# lists the columns. mmm/sql_views.py can build it in BigQuery from an ads table
+# and an orders table (the `sql` block at the end of this file).
+data:
+  source: csv                                # csv | bigquery
+  csv: data/synthetic.csv                    # next to this file. Made by: python3 mmm/synthetic.py --config example/mmm.yaml
+                                             # (a cloud run needs a gs:// path instead)
+  table: your-gcp-project.example_mmm.vw_mmm_weekly_geo   # used when source is bigquery
+  window:
+    start: "2023-01-02"                      # first week to model. Aim for 2+ years, never under 18 months
+    end: null                                # null = up to the last week in the data
+  week_start_day: monday
+
+# The markets ("geos"), each with its population. Population only scales the geos
+# against each other, so rounded official estimates are fine. A geo can be one
+# country or a group of smaller ones.
+geos:
+  UK: 69300000
+  DE: 83600000
+  FR: 68600000
+  NORDICS: 27900000                          # SE + DK + NO + FI
+
+# What the model explains. revenue_col ÷ kpi_col is the value of one order, which
+# lets the model report return on spend in money rather than in orders.
+kpis:
+  orders:
+    kpi_col: orders
+    revenue_col: revenue
+  new_customers:
+    kpi_col: new_customers
+    revenue_col: new_customer_revenue
+
+# ── 4. What the model sees ──────────────────────────────────────────────────
+# Paid media, as a few channel groups: id → plain-English label. Group by how the
+# budget is actually moved around (here: platform × funnel stage). Three to six
+# groups is about what two years of weekly data can tell apart.
+channels:
+  google_convert: Google PMax / Shopping / non-brand search
+  google_upper: Google YouTube / Demand Gen
+  meta_convert: Meta conversion
+  meta_upper: Meta reach / awareness
+
+# The input table's column names for each channel's spend and impressions.
+columns:
+  week: week_start
+  geo: geo
+  spend: "spend_{channel}"
+  media: "impressions_{channel}"
+
+# Demand controls: how much people already wanted the brand that week. Without
+# one, channels that "harvest" existing demand (brand search, brand Shopping,
+# retargeting) take the credit for it. Name each series once, then a run picks
+# one or combines them with "+".
+demand_controls:
+  series:
+    clicks: brand_search_clicks              # brand-search clicks: tracks demand closely
+    impressions: brand_search_impressions
+    proxy: brand_search_eligible_impressions # impressions ÷ impression share. Weak; drops to 0 when brand search pauses
+    trends: brand_trends_index               # Google Trends for the brand topic (mmm/trends.py). Ads can't move it
+  default: clicks+trends
+
+# Other things that move sales but aren't caused by the ads.
+controls:
+  - discount_depth                           # share of the basket given away in discounts that week
+  - sale_campaign_live                       # 1 in weeks with a sale campaign running
+
+# Calendar weeks to flag (the same in every geo). Pick from:
+# bfcm, xmas_runin, xmas_week, newyear_week, easter_week
+calendar: [bfcm, xmas_runin, xmas_week, newyear_week, easter_week]
+
+# One-off events the ads didn't cause: launches, stock-outs, a site rebuild.
+# name → the week starts to flag. Example:  spring_launch: ["2024-03-04", "2024-03-11"]
+events: {}
+
+fill_zero: [brand_trends_index, discount_depth]   # gaps in these columns mean "zero"
+
+# How the model's baseline (sales with no paid media) is shaped.
+model:
+  max_lag: 8               # an ad's effect can carry on for up to 8 weeks
+  knots: monthly           # points where the baseline can bend: monthly | quarterly | aks | a number
+  fourier: 2               # smooth yearly waves for the seasonal peak (0 = none)
+
+# The ROI ranges each channel probably falls in, before the model sees the data.
+# A file next to this one; docs/CHEATSHEET.md §3 explains how to set them.
+priors:
+  default: priors.csv
+
+# ── 5. How to test it ───────────────────────────────────────────────────────
+# Holdouts hide some weeks from the model, then check how well it predicts them.
+# Choose the model on all three, not on how well it fits the weeks it has seen.
+holdouts:
+  random:
+    type: random
+    ratio: 0.1                               # a random 10% of geo-weeks
+    label: Random 10% of weeks
+  peak_all_geos:
+    type: dates                              # the hardest test: every geo loses the same peak
+    start: "2024-10-07"
+    end: "2024-12-23"
+    label: Q4 2024 held out, all markets
+  peak_one_geo:
+    type: geo_dates                          # one geo loses the peak; the others still show its shape
+    geos: [UK]
+    start: "2024-10-07"
+    end: "2024-12-23"
+    label: Q4 2024 held out, UK only
+
+# Safety checks on the input. A run stops if they fail.
+guardrails:
+  max_unmapped_spend_share: 0.01             # stop if over 1% of spend has no channel
+  unmapped_spend_col: unmapped_spend
+  unmapped_geo_spend_col: unmapped_geo_spend_all_geos
+  other_spend_cols: [brand_search_spend]     # spend that is counted but not modelled as a channel
+
+# ── 6. Budget scenarios ─────────────────────────────────────────────────────
+# Meridian can only re-plan weeks it has seen, so last year's peak stands in for
+# this year's.
+optimisation:
+  label: Nov–Dec
+  start: "2024-11-04"
+  end: "2024-12-23"                          # the last WEEK START in the period
+  spend_bound: 0.3                           # each channel may move ±30% from its share
+  budget_multipliers: [0.8, 1.0, 1.2]        # the same budget, then −20% and +20%
+
+# How long the sampler runs. "smoke" checks the plumbing in a minute; "standard"
+# is what you present.
+sampling:
+  smoke:    {n_chains: 2, n_adapt: 100,  n_burnin: 100,  n_keep: 50}
+  quick:    {n_chains: 4, n_adapt: 500,  n_burnin: 500,  n_keep: 250}
+  standard: {n_chains: 4, n_adapt: 2000, n_burnin: 1000, n_keep: 1000}
+  prior_draws: 500
+  seed: 20260101
+
+# ── 7. The chosen model and the refresh ─────────────────────────────────────
+# The settings you settle on after the validation and sensitivity grids. The
+# Scenario Planner, the ready-to-run UI notebook and grids/refresh.txt use them.
+main_fit:
+  kpi: orders
+  sampling: standard
+  knots: monthly
+  fourier: 2
+  priors_file: priors.csv
+  demand_control: clicks+trends
+  priors_scale: 1.0
+  optimise: true
+  report: true
+  save_model: true
+main_run_marker: main                        # the grid run whose id contains this feeds the planner
+
+# The Scenario Planner: a Google Sheet that a Looker Studio report reads. A PERSON
+# owns the sheet and shares it with the service account as Editor (service accounts
+# can't own Drive files). README → "Scenario Planner" has the steps.
+planner:
+  spreadsheet_id: null                       # the id from the sheet's URL
+  name: Example Co MMM
+  min_shift: 0.5                             # planner lets each channel go down to −50%…
+  max_shift: 1.0                             # …and up to +100%
+
+# The quarterly refresh: fits → planner tables → sheet, with nobody involved.
+schedule:
+  cron: "TZ=Europe/London 0 6 7 1,4,7,10 *"  # 06:00 on 7 Jan / Apr / Jul / Oct
+  grid: refresh.txt
+
+# The readout (mmm/readout.py): the caveats to print under every result.
+readout:
+  caveats:
+    - "**Online sales only.** Retail and marketplace sales aren't in the data, so brand activity that sends people to shops is under-counted."
+    - "**Upper-funnel returns are uncertain.** Video and reach ran in a few flights, mostly at seasonal peaks, so their ranges lean on the priors."
+    - "**Channels outside the model** (email, TV, influencers) may have their effect credited to the paid media that ran at the same time."
+
+# ── 8. Google Trends (optional) ─────────────────────────────────────────────
+# A demand series that the ads can't move. Use the brand's TOPIC (search the brand
+# on trends.google.com and pick the entry marked "Topic"; the id is in the URL),
+# so searches in every language count.
+trends:
+  topic: "/m/0example"
+  start: "2023-01-01"
+  geos:                                      # geo → {country: weight}. Weight = that country's share of sales
+    UK: {GB: 1}
+    DE: {DE: 1}
+    FR: {FR: 1}
+    NORDICS: {SE: 4, DK: 3, NO: 2, FI: 1}
+  country_table: your-gcp-project.example_mmm.mmm_google_trends_country_weekly
+  geo_table: your-gcp-project.example_mmm.mmm_google_trends_weekly
+
+# ── 9. Building the input in BigQuery (optional) ────────────────────────────
+# mmm/sql_views.py turns this block into two views: campaign-day spend tagged with
+# a channel group, and the weekly geo table the model reads. Skip it if you build
+# the input table some other way.
+sql:
+  dataset: your-gcp-project.example_mmm      # where the views are created
+  timezone: Europe/London                    # "last complete week" is judged in this timezone
+  ads:
+    table: your-gcp-project.example.fact_ads_campaign_daily
+    columns:                                 # model name: your column name
+      date: date
+      platform: platform                     # e.g. 'Google', 'Meta'
+      campaign_id: campaign_id
+      campaign_name: campaign_name
+      objective: objective_type
+      region: market_region
+      spend: spend
+      impressions: impressions
+      clicks: clicks
+      search_impression_share: search_impression_share   # null if you don't have it
+  orders:
+    table: your-gcp-project.example.fact_orders
+    columns:
+      order_id: order_id
+      order_date: order_date
+      created_at: created_at
+      region: market_region
+      customer_key: "COALESCE(TO_HEX(hashed_email), CAST(customer_id AS STRING))"   # any SQL expression
+      revenue: revenue_excl_shipping         # merchandise, ex-VAT, after discounts, before refunds
+      discounts: total_discounts
+      subtotal: subtotal_price
+    where: "revenue_excl_shipping > 0"       # e.g. drop £0 replacement orders
+  region_to_geo:                             # region code in your data → model geo
+    GB: UK
+    DE: DE
+    FR: FR
+    SE: NORDICS
+    DK: NORDICS
+    NO: NORDICS
+    FI: NORDICS
+  ads_region_overrides: []                   # fix mis-tagged campaigns: {region: XX, name_regex: '…', geo: UK}
+  control_groups: [brand_search]             # groups that become controls, not channels
+  # Campaign → group rules, checked top to bottom; the first match wins. A rule
+  # matches the platform, then the objective OR the name pattern (if given), and
+  # not exclude_regex. Patterns run on the UPPER-CASED campaign name.
+  # A group can span platforms: `platform: [Meta, TikTok]` pools paid social.
+  channel_rules:
+    - group: brand_search
+      platform: Google
+      name_regex: 'BRAND ?SEARCH|BRANDED[ _]SEARCH|^BRAND \|'
+      exclude_regex: 'PMAX|P\.MAX|SHOPPING|DEMAND ?GEN|YOUTUBE|VIDEO|CTV'
+    - group: google_upper
+      platform: Google
+      objectives: [reach, act]
+      name_regex: 'YOUTUBE|TRUEVIEW|DEMAND ?GEN|VIDEO|CTV|AWARENESS'
+    - group: google_convert
+      platform: Google
+    - group: meta_upper
+      platform: Meta
+      objectives: [reach, act, engage]
+      name_regex: '\| ?(REACH|AWARENESS) ?\|'
+    - group: meta_convert
+      platform: Meta
+  sale_campaign_regex: 'BFCM|BLACK ?FRIDAY|CYBER|WINTER SALE|SUMMER SALE|\|SALE\|'
+  trends_table: your-gcp-project.example_mmm.mmm_google_trends_weekly   # null = no Trends column
+  qa_min_spend: 500                          # the review list shows campaigns above this spend

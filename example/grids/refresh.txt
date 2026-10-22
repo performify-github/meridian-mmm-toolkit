@@ -1,0 +1,6 @@
+# The scheduled refresh (Colab schedule → orchestrator). Settings come from main_fit in mmm.yaml.
+# The run whose id contains "main" feeds the Scenario Planner and the sheet; the rest re-check it.
+--sampling standard --run-id q{date}-main
+--sampling standard --holdout random --no-optimise --no-report --no-save --run-id q{date}-holdout-random
+--sampling standard --holdout peak_all_geos --no-optimise --no-report --no-save --run-id q{date}-holdout-peak-all-geos
+--sampling standard --holdout peak_one_geo --no-optimise --no-report --no-save --run-id q{date}-holdout-peak-one-geo

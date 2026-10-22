@@ -1,0 +1,11 @@
+# Sensitivity of the chosen spec (all data, no holdout): what moves the answer?
+# Each line changes ONE thing from main_fit. Report what holds steady separately from what moves.
+--sampling standard --priors-scale 0.5 --no-optimise --no-report --no-save --run-id sens{date}-priors-x0.5
+--sampling standard --priors-scale 2 --no-optimise --no-report --no-save --run-id sens{date}-priors-x2
+--sampling standard --demand-control trends --no-optimise --no-report --no-save --run-id sens{date}-trends-only
+--sampling standard --demand-control clicks --no-optimise --no-report --no-save --run-id sens{date}-clicks-only
+--sampling standard --no-demand-control --no-optimise --no-report --no-save --run-id sens{date}-no-demand-control
+--sampling standard --knots aks --no-optimise --no-report --no-save --run-id sens{date}-aks-knots
+--sampling standard --knots quarterly --no-optimise --no-report --no-save --run-id sens{date}-quarterly-knots
+--sampling standard --fourier 0 --no-optimise --no-report --no-save --run-id sens{date}-no-fourier
+--sampling standard --kpi new_customers --no-optimise --no-report --no-save --run-id sens{date}-new-customers

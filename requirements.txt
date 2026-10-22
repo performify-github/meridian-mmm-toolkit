@@ -1,0 +1,14 @@
+# Local runs (Python 3.11 or 3.12; Meridian doesn't support 3.13+ yet).
+# Cloud runs install what they need on the Colab runtime; a laptop only needs the last block.
+google-meridian[schema,scenarioplanner]==2.1.0
+matplotlib
+pytrends            # mmm/trends.py only
+
+# The runner, BigQuery input and the planner sheet
+pyyaml
+pandas
+google-cloud-bigquery
+google-cloud-storage
+db-dtypes
+google-api-python-client
+pytest

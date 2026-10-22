@@ -1,0 +1,27 @@
+{
+ "seed": 7,
+ "weeks": 156,
+ "channels": {
+  "google_convert": {
+   "true_roi": 1.8,
+   "kind": "convert",
+   "weekly_decay": 0.3
+  },
+  "google_upper": {
+   "true_roi": 1.1,
+   "kind": "upper",
+   "weekly_decay": 0.6
+  },
+  "meta_convert": {
+   "true_roi": 1.3,
+   "kind": "convert",
+   "weekly_decay": 0.3
+  },
+  "meta_upper": {
+   "true_roi": 0.7,
+   "kind": "upper",
+   "weekly_decay": 0.6
+  }
+ },
+ "note": "true_roi = incremental revenue \u00f7 spend over the whole window, all geos"
+}

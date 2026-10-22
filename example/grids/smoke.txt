@@ -1,0 +1,3 @@
+# Plumbing test: tiny sampling, the same steps as refresh.txt. Minutes, not hours. Don't read the numbers.
+--sampling smoke --run-id s{date}-main
+--sampling smoke --holdout random --no-optimise --no-report --no-save --run-id s{date}-holdout-random

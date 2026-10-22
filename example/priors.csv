@@ -1,0 +1,5 @@
+channel,roi_low,roi_high,mass,status,source,notes
+google_convert,0.5,4.0,0.9,EXAMPLE,"Replace with your own: published benchmarks for paid search / Shopping, then cap the top at the platform's own reported ROAS (see docs/CHEATSHEET.md §3)","Lower funnel: should not beat platform attribution"
+google_upper,0.3,3.0,0.9,EXAMPLE,"Replace with your own: online video benchmarks and incrementality studies","Upper funnel: wide, because a short-term online-only model sees little of it"
+meta_convert,0.5,3.5,0.9,EXAMPLE,"Replace with your own: paid social benchmarks, capped at Meta's reported ROAS","Lower funnel"
+meta_upper,0.3,3.0,0.9,EXAMPLE,"Replace with your own: upper-funnel social benchmarks","Upper funnel: wide"
