@@ -10,6 +10,11 @@
 # Rule of thumb for every date below: it must be a WEEK START (a Monday, unless you
 # change data.week_start_day). The model counts in whole weeks, and `check` catches
 # a date that isn't one.
+#
+# The VALUES here are example conventions for a European online shop advertising on
+# Google and Meta: the markets, channel groups, campaign-objective names, naming
+# patterns and the hashed-email customer key. They are a starting point, not a
+# recommendation. Adapt every one to how the brand's data and budgets actually work.
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── 1. Who ──────────────────────────────────────────────────────────────────
@@ -200,8 +205,11 @@ schedule:
   cron: "TZ=Europe/London 0 6 7 1,4,7,10 *"  # 06:00 on 7 Jan / Apr / Jul / Oct
   grid: refresh.txt
 
-# The readout (mmm/readout.py): the caveats to print under every result.
+# The readout (mmm/readout.py).
 readout:
+  margin: 0.5        # contribution margin, for the profit break-even line (null if unknown)
+  notes:             # a sentence after each spend column that is counted but not modelled
+    brand_search_spend: "Brand search mostly reaches people who already want the brand, so its clicks are used to measure demand instead."
   caveats:
     - "**Online sales only.** Retail and marketplace sales aren't in the data, so brand activity that sends people to shops is under-counted."
     - "**Upper-funnel returns are uncertain.** Video and reach ran in a few flights, mostly at seasonal peaks, so their ranges lean on the priors."
@@ -249,7 +257,7 @@ sql:
       order_date: order_date
       created_at: created_at
       region: market_region
-      customer_key: "COALESCE(TO_HEX(hashed_email), CAST(customer_id AS STRING))"   # any SQL expression
+      customer_key: "COALESCE(TO_HEX(hashed_email), CAST(customer_id AS STRING))"   # an example: any SQL expression that identifies a customer
       revenue: revenue_excl_shipping         # merchandise, ex-VAT, after discounts, before refunds
       discounts: total_discounts
       subtotal: subtotal_price
@@ -268,6 +276,8 @@ sql:
   # matches the platform, then the objective OR the name pattern (if given), and
   # not exclude_regex. Patterns run on the UPPER-CASED campaign name.
   # A group can span platforms: `platform: [Meta, TikTok]` pools paid social.
+  # The platform values, objective names and name patterns below are examples: use
+  # the values that appear in your own ads table.
   channel_rules:
     - group: brand_search
       platform: Google

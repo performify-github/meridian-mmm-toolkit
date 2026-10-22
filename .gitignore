@@ -5,3 +5,19 @@ __pycache__/
 /readout/
 *.ipynb_checkpoints
 .DS_Store
+
+# Built and executed notebooks embed the full config and priors: never commit them.
+*.ipynb
+
+# Secrets and client material never belong here.
+.env
+.env.*
+*.pem
+*.p12
+*.key
+*credentials*.json
+*service-account*.json
+*service_account*.json
+*-sa-key*.json
+client_secret*.json
+private/

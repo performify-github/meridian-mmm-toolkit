@@ -60,7 +60,7 @@ DEFAULTS: dict = {
     "main_run_marker": "main",
     "planner": {"spreadsheet_id": None, "name": None, "min_shift": 0.5, "max_shift": 1.0},
     "schedule": {"cron": "TZ=Europe/London 0 6 7 1,4,7,10 *", "grid": "refresh.txt"},
-    "readout": {"caveats": [], "palette": {}},
+    "readout": {"caveats": [], "palette": {}, "margin": None, "notes": {}},
     "trends": None,
     "sql": None,
 }
@@ -307,6 +307,10 @@ def validate(conf: Config) -> list[str]:
         for i, o in enumerate(s.get("ads_region_overrides") or []):
             if o.get("geo") not in c["geos"]:
                 e.append(f"sql.ads_region_overrides[{i}].geo: {o.get('geo')!r} is not in geos")
+
+    m = c["readout"].get("margin")
+    if m is not None and not (isinstance(m, (int, float)) and 0 < m <= 1):
+        e.append("readout.margin: a contribution margin between 0 and 1 (e.g. 0.5), or null")
 
     t = c["trends"]
     if t:

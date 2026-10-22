@@ -56,3 +56,9 @@ def test_cloud_block_only_needed_for_cloud(brand):
     conf = config.load(p)                      # local runs don't need it…
     with pytest.raises(config.ConfigError, match="gcp.project"):
         config.require_cloud(conf)             # …cloud commands do
+
+
+def test_readout_margin_must_be_a_share(brand):
+    p = edit(brand, lambda c: c["readout"].update(margin=50))
+    with pytest.raises(config.ConfigError, match="readout.margin"):
+        config.load(p)

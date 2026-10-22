@@ -112,7 +112,9 @@ the readout, and a table of how close each setting got to the true returns.
 ## Start a new brand
 
 1. **Copy the example folder** into the brand's own repo: `mmm.yaml`, `priors.csv`, `grids/`.
-   Keep client config and data out of this repo.
+   Keep client config and data out of this repo. If you must keep them in a clone of it, use a
+   `private/` folder: git ignores it, along with built notebooks (they embed the whole config),
+   `.env` files and credential files.
 2. **Fill in `mmm.yaml` from the top down.** Each block says what it's for. Every date must
    be a week start (a Monday by default).
 3. **Build the input table.** Either fill the `sql` block and run
@@ -270,7 +272,7 @@ Every command takes `--config <brand>/mmm.yaml` (or set `MMM_CONFIG`).
 | Build the planner tables | `run_mmm.py planner <run_id> --wait` (or `--local`) |
 | Write them to the sheet | `run_mmm.py publish <planner_run_id> --as-sa` |
 | The whole chain, in the cloud | `run_mmm.py orchestrate --grid refresh.txt` |
-| A readout for people | `readout.py --main <run> --validation <runs…> --sensitivity <runs…> --out DIR` |
+| A readout for people | `readout.py --main <run> --validation <runs…> --sensitivity <runs…> --out DIR` (set `readout.margin` for a profit break-even line) |
 | Rebuild the BigQuery views | `sql_views.py` |
 | Refresh Google Trends | `trends.py fetch --out t.csv`, then `trends.py load --csv t.csv` |
 

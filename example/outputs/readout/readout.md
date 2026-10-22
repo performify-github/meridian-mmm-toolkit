@@ -6,7 +6,8 @@
 
 - **Paid media explains about 21% of orders. The other ~79% is the baseline**: people who already wanted the brand, seasonality and promotions.
 - Across the paid channels, each £1 brought back about **£1.28** in revenue (90% range £0.97–£1.69).
-- Highest return: **Google PMax / Shopping / non-brand search**. The ranges overlap, so treat the order as a guide, not a ranking.
+- At a 50% margin, a channel needs more than **£2.00** per £1 to pay for itself in profit (the dotted line in the chart).
+- Highest return: **Google PMax / Shopping / non-brand search**. Its range overlaps at least one other channel's, so treat the order as a guide, not a ranking.
 
 ![Return on spend by channel](roi.png)
 
@@ -23,7 +24,7 @@
 
 *Return on the next £1* is the budget number: move money from channels where it is low to channels where it is high.
 
-`brand_search_spend` (£23,892) isn't modelled as a channel: it mostly reaches people who already want the brand, so it is used to measure demand instead.
+`brand_search_spend` (£23,892) is counted but not modelled as a channel. Brand search mostly reaches people who already want the brand, so its clicks are used to measure demand instead.
 
 ## Nov–Dec scenarios
 

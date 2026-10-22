@@ -42,23 +42,30 @@ def _style(ax, fig, p):
     ax.set_axisbelow(True)
 
 
-def chart_roi(ch: dict, names: dict, sym: str, p: dict, path: pathlib.Path) -> None:
+def chart_roi(ch: dict, names: dict, sym: str, p: dict, path: pathlib.Path, margin: float | None = None) -> None:
     import matplotlib.pyplot as plt
 
     order = sorted(names, key=lambda c: ch[c]["roi_median"])
     fig, ax = plt.subplots(figsize=(7, 0.6 * len(order) + 0.8), dpi=200)
     _style(ax, fig, p)
-    xmax = max(max(ch[c]["roi_ci_hi"] for c in order) * 1.4, 2.0)
+    xmax = max(max(ch[c]["roi_ci_hi"] for c in order) * 1.4, 2.0, (1 / margin) * 1.15 if margin else 0)
     for i, c in enumerate(order):
         v = ch[c]
         ax.plot([v["roi_ci_lo"], v["roi_ci_hi"]], [i, i], color=p["series1"], linewidth=2, solid_capstyle="round")
         ax.scatter([v["roi_median"]], [i], s=60, color=p["series1"], zorder=3, edgecolors=p["surface"], linewidths=2)
         ax.text(v["roi_ci_hi"] + 0.03 * xmax, i, f"{v['roi_median']:.1f}  ({v['roi_ci_lo']:.1f}–{v['roi_ci_hi']:.1f})",
                 va="center", fontsize=8.5, color=p["ink"], bbox={"facecolor": p["surface"], "edgecolor": "none", "pad": 1})
+    # 1.0 = revenue equals spend. Profit break-even is 1 ÷ margin, drawn only when the margin is known.
     ax.axvline(1.0, color=p["secondary"], linewidth=1, linestyle=(0, (4, 3)), zorder=1)
-    ax.text(1.0 + 0.01 * xmax, -0.55, "break-even", color=p["secondary"], fontsize=8, va="center")
+    ax.text(1.0 + 0.01 * xmax, -0.55, "revenue = spend", color=p["secondary"], fontsize=8, va="center", zorder=2,
+            bbox={"facecolor": p["surface"], "edgecolor": "none", "pad": 1})
+    if margin:
+        be = 1 / margin
+        ax.axvline(be, color=p["ink"], linewidth=1, linestyle=(0, (1, 2)), zorder=1)
+        ax.text(be + 0.01 * xmax, len(order) - 0.45, f"profit break-even ({margin:.0%} margin)", color=p["ink"],
+                fontsize=8, va="center", bbox={"facecolor": p["surface"], "edgecolor": "none", "pad": 1})
     ax.set_yticks(range(len(order)), [names[c] for c in order], color=p["ink"])
-    ax.set_ylim(-0.8, len(order) - 0.5)
+    ax.set_ylim(-0.8, len(order) - (0.2 if margin else 0.5))
     ax.set_xlim(0, xmax)
     ax.set_xlabel(f"{sym} revenue per {sym}1 spent (median and 90% range)", color=p["secondary"], fontsize=9)
     fig.tight_layout()
@@ -161,12 +168,17 @@ def main() -> None:
                              "optimisation_scenarios.csv", check=False, stderr=False)
         scen = pd.read_csv(io.StringIO(csv)) if csv.startswith("budget_multiplier") else None
 
-    chart_roi(ch, names, sym, pal, out / "roi.png")
+    margin = cfg["readout"].get("margin")
+    chart_roi(ch, names, sym, pal, out / "roi.png", margin)
     chart_share(ch, names, kpi, pal, out / "share.png")
     if scen is not None:
         chart_budget(scen, names, sym, pal, out / "budget.png")
 
     paid = all_ch.get("pct_contribution_median", 0)
+    best = max(names, key=lambda c: ch[c]["roi_median"])
+    clear = all(ch[best]["roi_ci_lo"] > ch[c]["roi_ci_hi"] for c in names if c != best)
+    lead = ("Its range sits clear of every other channel's, so the lead is solid." if clear else
+            "Its range overlaps at least one other channel's, so treat the order as a guide, not a ranking.")
     L = [f"# {brand} marketing mix model — readout\n",
          f"*Model run `{a.main}` · Google Meridian {d.get('meridian')} · weekly, {' / '.join(cfg['geos'])}, "
          f"{data['first_week']} → {data['last_week']} ({data['weeks']} weeks)*\n",
@@ -175,8 +187,9 @@ def main() -> None:
          "the baseline**: people who already wanted the brand, seasonality and promotions.",
          f"- Across the paid channels, each {sym}1 brought back about **{sym}{all_ch.get('roi_median', 0):.2f}** in "
          f"revenue (90% range {sym}{all_ch.get('roi_ci_lo', 0):.2f}–{sym}{all_ch.get('roi_ci_hi', 0):.2f}).",
-         f"- Highest return: **{names[max(names, key=lambda c: ch[c]['roi_median'])]}**. The ranges overlap, so "
-         "treat the order as a guide, not a ranking.\n",
+         *([f"- At a {margin:.0%} margin, a channel needs more than **{sym}{1 / margin:.2f}** per {sym}1 to pay for "
+            "itself in profit (the dotted line in the chart)."] if margin else []),
+         f"- Highest return: **{names[best]}**. {lead}\n",
          "![Return on spend by channel](roi.png)\n",
          "![Share explained by each driver](share.png)\n",
          "## Channel table\n",
@@ -189,9 +202,10 @@ def main() -> None:
                  f"{v['pct_contribution_median']:.1f}% |")
     L.append("\n*Return on the next " + sym + "1* is the budget number: move money from channels where it is low "
              "to channels where it is high.\n")
+    notes = cfg["readout"].get("notes") or {}
     for col, amount in (data.get("other_spend") or {}).items():
-        L.append(f"`{col}` ({money(amount, sym)}) isn't modelled as a channel: it mostly reaches people who "
-                 "already want the brand, so it is used to measure demand instead.\n")
+        L.append(f"`{col}` ({money(amount, sym)}) is counted but not modelled as a channel. "
+                 + (notes.get(col) or "") + "\n")
 
     if scen is not None:
         oc = cfg["optimisation"] or {}
