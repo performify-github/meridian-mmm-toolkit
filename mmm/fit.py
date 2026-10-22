@@ -5,8 +5,8 @@
 # `.ipynb`). The runner puts the brand's config, its priors and this run's settings in the
 # parameters cell straight after this one, so the executed notebook records exactly what ran.
 #
-# Cloud runs write everything to `gs://<bucket>/<prefix>/runs/<run_id>/`; local runs write to
-# a folder on disk:
+# Cloud runs write everything to `gs://<bucket>/<prefix>/runs/<run_id>/`; local and plain-Colab
+# runs write to a folder on disk:
 # - `run_summary.json`: the headline numbers;
 # - `summary_metrics.csv`, `predictive_accuracy.csv`, `optimisation_scenarios.csv`;
 # - `model_summary.html` and `optimisation_x*.html`: Meridian's own reports;
@@ -32,8 +32,9 @@ try:
     _have = importlib.metadata.version("google-meridian")
 except importlib.metadata.PackageNotFoundError:
     _have = None
+IN_COLAB = os.path.exists("/content") or bool(os.environ.get("COLAB_RELEASE_TAG"))
 if _have != MERIDIAN:
-    if LOCAL:
+    if LOCAL and not IN_COLAB:
         sys.exit(f"google-meridian {MERIDIAN} is needed (found {_have}): pip install -r requirements.txt")
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", _pkg, "db-dtypes", "pyyaml"], check=True)
 print("GPU" if HAS_GPU else "CPU", "runtime;", _pkg, "| was:", _have)
@@ -270,7 +271,8 @@ SUMMARY["priors"] = {c: {"low": float(r.roi_low * scale), "high": float(r.roi_hi
 holdout, hname = None, RUN.get("holdout")
 if hname:
     h = CFG["holdouts"][hname]
-    ranges = [spec.DateRange(str(s), str(e)) for s, e in (h.get("ranges") or [[h.get("start"), h.get("end")]])]
+    ranges = ([] if h["type"] == "random" else
+              [spec.DateRange(str(s), str(e)) for s, e in (h.get("ranges") or [[h.get("start"), h.get("end")]])])
     if h["type"] == "random":
         holdout = spec.HoldoutSpec(spec=spec.RandomHoldoutSpec(
             ratio=h["ratio"], seed=h.get("seed", CFG["sampling"]["seed"])))

@@ -55,6 +55,22 @@ flowchart LR
    time, and see what moves.
 4. **Use it.** A readout for people, a planner for budgets, and a refresh every quarter.
 
+### Where each step lives
+
+| Step | Set it in `mmm.yaml` | The code |
+|---|---|---|
+| 1. Shape the data: one row per geo per week | `data`, `geos`, `kpis`, `channels`, `sql` | [`sql_views.py`](mmm/sql_views.py), [`synthetic.py`](mmm/synthetic.py), `run_mmm.py check --data` |
+| 2. Control for demand | `demand_controls` | [`trends.py`](mmm/trends.py); [`fit.py`](mmm/fit.py) §2 |
+| 3. Set priors | [`priors.csv`](example/priors.csv) | `fit.py` §3; [cheat sheet §3](docs/CHEATSHEET.md#3-setting-priors) |
+| 4. Shape the seasons: knots and Fourier terms | `model` | `fit.py` §2 (Fourier) and §3 (knots) |
+| 5. Hold out weeks to test it | `holdouts` | `fit.py` §3; [`grids/validation.txt`](example/grids/validation.txt) |
+| 6. Change one thing at a time | `main_fit` | [`grids/sensitivity.txt`](example/grids/sensitivity.txt); `run_mmm.py queue` |
+| 7. Fit and review | `sampling` | `fit.py` §4–6; `run_mmm.py local` or `submit` |
+| 8. Budget scenarios | `optimisation` | `fit.py` §8 |
+| 9. Scenario Planner | `planner` | [`scenario_planner.py`](mmm/scenario_planner.py); `run_mmm.py planner`, `publish` |
+| 10. Run it in the cloud, every quarter | `gcp`, `schedule` | [`orchestrator.py`](mmm/orchestrator.py); `run_mmm.py sync`, `orchestrate`, `schedule` |
+| Explain it to people | `readout` | [`readout.py`](mmm/readout.py) |
+
 ---
 
 ## Try it in five minutes (no cloud, no client data)
@@ -77,9 +93,19 @@ python3 mmm/readout.py --config example/mmm.yaml --main demo --local-dir runs --
 reading, use `--sampling standard` (about 5–15 minutes on a laptop). Compare the result with
 `example/data/synthetic.truth.json`.
 
-**Example outputs** from a standard fit on the synthetic brand are in
-[`example/outputs/`](example/outputs/): Meridian's own HTML report, a budget-scenario report
-and the readout.
+**Or in plain Colab** (free, nothing to install locally beyond the repo):
+
+```bash
+python3 mmm/run_mmm.py --config example/mmm.yaml build --colab --sampling quick --run-id colab-demo
+```
+
+Upload `build/colab-demo.ipynb` to [Colab](https://colab.research.google.com/), upload
+`example/data/synthetic.csv` to the session's files, and click **Run all**. The notebook
+installs Meridian, fits, and writes its outputs to `/content/mmm_out/colab-demo/`.
+
+**Example outputs** from standard fits on the synthetic brand are in
+[`example/outputs/`](example/outputs/): Meridian's own HTML report, a budget-scenario report,
+the readout, and a table of how close each setting got to the true returns.
 
 ---
 
@@ -302,9 +328,12 @@ and population are added by the notebook.
   optimisation dates must be one too. `check` catches it.
 - **Always set knots in a geo model.** Leaving them unset gives every week its own baseline,
   which swallows any campaign that ran in all markets at once. `monthly` is a good default.
-- **Hiding a whole peak season in every market needs Fourier terms** (`fourier: 2`), or the
-  sampler has nothing to anchor those weeks and won't converge. Hiding it in one market only
-  (`geo_dates`) is gentler: the others still show the seasonal shape.
+- **Hiding a whole peak season in every market needs Fourier terms** (`fourier: 2`), and even
+  then it may not converge (the example's doesn't): no market shows the baseline in those weeks.
+  Hiding it in one market only (`geo_dates`) is gentler: the others still show the seasonal shape.
+- **Passing Meridian's review doesn't rule out over-crediting.** In the example, the run with no
+  demand control doubles the conversion channels' returns and still passes every check. Only the
+  demand control and the sensitivity grid catch it.
 - **A lower-funnel ROI above the platform's own reported ROAS is a warning, not a win.** If it
   barely moves when you halve its prior, demand is leaking into it. Add or strengthen the demand
   control; don't tune the prior to hide it.

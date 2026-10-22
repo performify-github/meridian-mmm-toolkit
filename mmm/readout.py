@@ -118,9 +118,15 @@ def chart_budget(scen, names: dict, sym: str, p: dict, path: pathlib.Path) -> No
 
 def describe(run: dict, main: dict) -> str:
     """What a sensitivity run changed from the main fit, in words."""
-    keys = ("kpi", "demand_control", "priors_file", "priors_scale", "knots", "fourier", "window_end")
-    diffs = [f"{k.replace('_', ' ')} {run.get(k)}" for k in keys if run.get(k) != main.get(k)]
-    return ", ".join(diffs) or "same settings"
+    words = {"kpi": "KPI: {}", "demand_control": "demand control: {}", "priors_file": "priors: {}",
+             "priors_scale": "priors ×{:g}", "knots": "knots: {}", "fourier": "{} seasonal wave pairs",
+             "window_end": "data to {}"}
+    diffs = []
+    for k, w in words.items():
+        v = run.get(k)
+        if v != main.get(k):
+            diffs.append("no demand control" if k == "demand_control" and v == "none" else w.format(v))
+    return (", ".join(diffs) or "same settings").capitalize()
 
 
 def main() -> None:

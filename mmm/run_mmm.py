@@ -9,6 +9,7 @@ with --config, or set $MMM_CONFIG.
   One cloud fit        run_mmm.py --config B/mmm.yaml submit --sampling standard --holdout random
   Status               run_mmm.py --config B/mmm.yaml status <run_id>
   Notebook only        run_mmm.py --config B/mmm.yaml build --sampling smoke      → build/
+  Plain Colab          run_mmm.py --config B/mmm.yaml build --colab --sampling quick  (CSV input)
   A batch              run_mmm.py --config B/mmm.yaml queue validation.txt [--max-parallel N]
   Planner tables       run_mmm.py --config B/mmm.yaml planner <fitted_run_id> [--wait | --local]
   Planner sheet        run_mmm.py --config B/mmm.yaml publish <planner_run_id> [--as-sa | --local]
@@ -119,12 +120,12 @@ def _cells(src: pathlib.Path) -> list[dict]:
     return cells
 
 
-def build(run: dict, src: pathlib.Path = FIT_SRC) -> dict:
+def build(run: dict, src: pathlib.Path = FIT_SRC, cfg: dict | None = None) -> dict:
     """Percent-format .py → notebook dict, with the parameters cell injected as cell 2."""
     import yaml  # noqa: PLC0415
 
     cells = _cells(src)
-    config_yaml = yaml.safe_dump(CFG, sort_keys=False, allow_unicode=True)
+    config_yaml = yaml.safe_dump(cfg or CFG, sort_keys=False, allow_unicode=True)
     priors = CONF.priors_path(run.get("priors_file")).read_text() if src == FIT_SRC else ""
     for text in (config_yaml, priors):
         assert "'''" not in text, "config and priors may not contain '''"
@@ -207,13 +208,23 @@ def submit(a: argparse.Namespace, run: dict | None = None, src: pathlib.Path = F
         run_local(build(run, src), out)
         print(json.dumps({"run_id": run["run_id"], "outputs": str(out)}))
         return run["run_id"]
-    nb = build(run, src)
     if a.cmd == "build":
+        cfg = None
+        if getattr(a, "colab", False):
+            # Plain Colab: read the CSV uploaded to /content, keep outputs in /content, no GCS.
+            if CFG["data"]["source"] != "csv":
+                sys.exit("--colab needs data.source: csv (upload the CSV to the Colab session)")
+            cfg = json.loads(json.dumps(CFG))
+            cfg["data"]["csv"] = f"/content/{pathlib.Path(CFG['data']['csv']).name}"
+            run["local_out"] = f"/content/mmm_out/{run['run_id']}"
         out = pathlib.Path(a.out) / f"{run['run_id']}.ipynb"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(nb, indent=1))
+        out.write_text(json.dumps(build(run, src, cfg), indent=1))
         print(out)
+        if cfg:
+            print(f"Plain Colab: upload this notebook and {CFG['data']['csv']} to the session, then Run all.")
         return run["run_id"]
+    nb = build(run, src)
     cfgmod.require_cloud(CONF)
     base = f"gs://{BUCKET}/{PREFIX}/runs/{run['run_id']}"
     _write_nb(nb, f"{base}/notebook.ipynb")
@@ -545,6 +556,7 @@ def schedule(cron: str | None, start: str | None) -> None:
 
 
 def status(run_id: str) -> None:
+    cfgmod.require_cloud(CONF)
     out = gcloud("colab", "executions", "list", f"--region={REGION}",
                  f"--filter=displayName={run_id}", "--format=json", stderr=False)
     jobs = json.loads(out) if out.strip() else []
@@ -628,6 +640,9 @@ def _parser() -> argparse.ArgumentParser:
         s.add_argument("--timeout", help="cloud execution timeout (default: gcp.execution_timeout)")
         s.add_argument("--out", default={"build": "build", "local": "runs"}.get(name, "build"),
                        help="local folder for built notebooks or local runs")
+        if name == "build":
+            s.add_argument("--colab", action="store_true",
+                           help="a self-contained notebook for plain Colab: reads the CSV from /content, no GCS")
     st = sub.add_parser("status")
     st.add_argument("run_id")
     pl = sub.add_parser("planner")

@@ -185,8 +185,9 @@ Don't soften this to win the work.
 ### Three holdouts, from easy to hard
 
 1. **A random 10% of market-weeks:** general fit.
-2. **The peak season hidden in every market:** the hardest test. It needs seasonal waves in
-   the baseline, or there's nothing to anchor those weeks.
+2. **The peak season hidden in every market:** the hardest test. No market shows the baseline
+   in those weeks, so it needs seasonal waves (Fourier terms), and may still fail to converge.
+   When it does, lean on the next one.
 3. **The peak season hidden in one market:** the others still show the seasonal shape, so this
    tests the media and controls rather than the baseline.
 
@@ -205,6 +206,7 @@ knots; no seasonal waves; the other KPI. Report what holds steady separately fro
    retargeting.
    - *Why:* they spend more when demand is already high.
    - *Symptom:* ROI above the platform's own ROAS that barely moves when its prior is halved.
+     The health checks can all pass: nothing in them looks for this.
    - *Fix:* a demand control, ideally one the ads can't move (Google Trends for the brand
      topic), and ideally a test.
    - *The catch:* brand-search clicks are partly *caused* by video and awareness ads, so

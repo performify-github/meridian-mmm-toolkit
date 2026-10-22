@@ -33,8 +33,9 @@ try:
     _have = importlib.metadata.version("google-meridian")
 except importlib.metadata.PackageNotFoundError:
     _have = None
+IN_COLAB = os.path.exists("/content") or bool(os.environ.get("COLAB_RELEASE_TAG"))
 if _have != MERIDIAN:
-    if LOCAL:
+    if LOCAL and not IN_COLAB:
         sys.exit(f"google-meridian {MERIDIAN} is needed (found {_have}): pip install -r requirements.txt")
     subprocess.run([sys.executable, "-m", "pip", "install", "-q", _pkg, "pyyaml"], check=True)
 print("GPU" if HAS_GPU else "CPU", "runtime;", _pkg, "| was:", _have)

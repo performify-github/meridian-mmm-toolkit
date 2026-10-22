@@ -20,7 +20,8 @@ def test_local_smoke_fit(brand, tmp_path):
     cfg = str(brand / "mmm.yaml")
     subprocess.run([sys.executable, ROOT / "mmm/synthetic.py", "--config", cfg, "--weeks", "120"], check=True)
     subprocess.run([sys.executable, ROOT / "mmm/run_mmm.py", "--config", cfg, "local", "--sampling", "smoke",
-                    "--run-id", "t", "--out", str(tmp_path), "--no-report", "--no-optimise"], check=True)
+                    "--run-id", "t", "--out", str(tmp_path), "--no-report", "--no-optimise",
+                    "--holdout", "random"], check=True)
     s = json.loads((tmp_path / "t" / "run_summary.json").read_text())
     assert set(s["channels"]) >= set(s["data"]["media_spend"])
     assert (tmp_path / "t" / "model.binpb").exists()
