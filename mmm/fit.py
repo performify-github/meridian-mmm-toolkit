@@ -8,7 +8,8 @@
 # Cloud runs write everything to `gs://<bucket>/<prefix>/runs/<run_id>/`; local and plain-Colab
 # runs write to a folder on disk:
 # - `run_summary.json`: the headline numbers;
-# - `summary_metrics.csv`, `predictive_accuracy.csv`, `optimisation_scenarios.csv`;
+# - `summary_metrics.csv`, `predictive_accuracy.csv`, `response_curves.csv`;
+# - `optimisation_scenarios.csv` and `scenario_draws.csv` (each split scored on every posterior draw);
 # - `model_summary.html` and `optimisation_x*.html`: Meridian's own reports;
 # - `model.binpb`: the fitted model.
 
@@ -53,7 +54,7 @@ import pandas as pd
 import yaml
 from dateutil.easter import easter
 from meridian import backend, constants
-from meridian.analysis import analyzer, optimizer, summarizer
+from meridian.analysis import analyzer, optimizer, summarizer, tensors
 from meridian.analysis.review import reviewer
 from meridian.data import data_frame_input_data_builder as dfb
 from meridian.model import model, prior_distribution, spec
@@ -62,6 +63,7 @@ from meridian.schema.serde import meridian_serde
 warnings.filterwarnings("ignore")
 CFG = yaml.safe_load(CONFIG_YAML)  # noqa: F821 — injected by run_mmm.py
 PRIORS = pd.read_csv(io.StringIO(PRIORS_CSV))  # noqa: F821
+EXPERIMENTS = pd.read_csv(io.StringIO(EXPERIMENTS_CSV)) if EXPERIMENTS_CSV.strip() else None  # noqa: F821
 RUN = dict(RUN)  # noqa: F821
 RUN_ID = RUN["run_id"]
 G, D, COLS = CFG["gcp"], CFG["data"], CFG["columns"]
@@ -267,6 +269,55 @@ roi_prior = backend.tfd.LogNormal(_ln.loc, _ln.scale, name=constants.ROI_M)
 SUMMARY["priors"] = {c: {"low": float(r.roi_low * scale), "high": float(r.roi_high * scale),
                          "status": r.status} for c, r in pri.iterrows()}
 
+# Lift tests (config `experiments`): each result replaces that channel's benchmark prior with
+# one built from the test. Meridian adjusts the test for its spend level, length and age, so an
+# eight-week test can inform the return over the whole window. The other channels keep their
+# benchmark priors.
+#
+# Meridian 2.1's `CalibrationBuilder.build()` returns a per-channel mixed-family prior, which fails
+# inside the JAX sampler and has no save support. So the builder's registry turns each test into a
+# prior (with Meridian's spend, recency and duration adjustments), and that prior is matched to a
+# LogNormal with the same mean and standard deviation, the same shape as the benchmark priors.
+if EXPERIMENTS is not None and len(EXPERIMENTS):
+    from meridian.model.calibration import base as calibration_base
+    from meridian.model.calibration import prior_builder
+    _reg = calibration_base.CalibrationRegistry()
+    _cb = prior_builder.CalibrationBuilder(data, max_lag=CFG["model"]["max_lag"], registry=_reg)
+    for c, g in EXPERIMENTS.groupby("channel"):
+        _cb.with_incrementality_experiment_result(
+            c, point_estimates=g["estimate"].tolist(), standard_errors=g["standard_error"].tolist(),
+            experiment_kpi_types=g["kpi_type"].tolist(), experiment_total_spends=g["spend"].tolist(),
+            experiment_start_dates=g["start"].astype(str).tolist(), experiment_end_dates=g["end"].astype(str).tolist())
+    _tc = data.time_coordinates
+    _cal = _reg.get_roi_distributions_by_channel(
+        _tc.all_dates[-1], max_lag=CFG["model"]["max_lag"], interval_days=_tc.interval_days,
+        model_duration_days=(_tc.all_dates[-1] - _tc.all_dates[0]).days + _tc.interval_days)
+    _loc = np.array(np.broadcast_to(np.asarray(_ln.loc), (len(channels),)))     # keeps the backend's dtype
+    _sd = np.array(np.broadcast_to(np.asarray(_ln.scale), (len(channels),)))
+    SUMMARY["calibration"] = []
+    for c, o in _cal.outputs.items():
+        d = _cal.distributions[c]
+        mean, sd = float(d.mean()), float(d.stddev())
+        i = channels.index(c)
+        _sd[i] = np.sqrt(np.log1p((sd / mean) ** 2))
+        _loc[i] = np.log(mean) - _sd[i] ** 2 / 2
+        SUMMARY["priors"][c].update(calibrated=True, calibrated_family=type(d).__name__,
+                                    calibrated_mean=mean, calibrated_sd=sd)
+        for x in o.experiments:
+            SUMMARY["calibration"].append({
+                "channel": c, "estimate": x.raw_experiment_result.point_estimate,
+                "standard_error": x.raw_experiment_result.standard_error,
+                "adjusted_estimate": float(x.adjusted_experiment_result.point_estimate),
+                "adjusted_standard_error": float(x.adjusted_experiment_result.standard_error)})
+    roi_prior = backend.tfd.LogNormal(_loc, _sd, name=constants.ROI_M)
+    print("calibrated from lift tests:", json.dumps(SUMMARY["calibration"], indent=1))
+
+# Each prior's exact 90% range on ROI, for the readout to set beside the posterior's.
+_pl = np.broadcast_to(np.asarray(roi_prior.loc, float), (len(channels),))
+_ps = np.broadcast_to(np.asarray(roi_prior.scale, float), (len(channels),))
+for i, c in enumerate(channels):
+    SUMMARY["priors"][c]["range_90"] = [float(np.exp(_pl[i] - 1.6449 * _ps[i])), float(np.exp(_pl[i] + 1.6449 * _ps[i]))]
+
 # Holdouts (config `holdouts`): weeks hidden from the fit, to test prediction.
 holdout, hname = None, RUN.get("holdout")
 if hname:
@@ -359,6 +410,8 @@ SUMMARY["channels"] = {
         "roi_median": _pick("roi", ch, "median"), "roi_ci_lo": _pick("roi", ch, "ci_lo"),
         "roi_ci_hi": _pick("roi", ch, "ci_hi"),
         "prior_roi_median": _pick("roi", ch, "median", "prior"),
+        "prior_roi_ci_lo": _pick("roi", ch, "ci_lo", "prior"),
+        "prior_roi_ci_hi": _pick("roi", ch, "ci_hi", "prior"),
         "mroi_median": _pick("mroi", ch, "median"),
         "pct_contribution_median": _pick("pct_of_contribution", ch, "median"),
         "incremental_outcome_median": _pick("incremental_outcome", ch, "median"),
@@ -369,7 +422,26 @@ write_summary()
 pd.DataFrame(SUMMARY["channels"]).T.round(3)
 
 # %% [markdown]
-# ## 7. Meridian's standard report
+# ## 7. Response curves
+#
+# Revenue against spend for each channel over the whole window, with the historical weekly
+# pattern scaled from zero to twice its spend. The line from zero to today's point is the
+# average return (ROI); the slope at today's point is the return on the next unit (mROI).
+
+# %%
+if RUN.get("report", True):
+    rc = an.response_curves(spend_multipliers=[round(float(m), 2) for m in np.arange(0, 2.001, 0.05)],
+                            confidence_level=0.9)
+    rcdf = (rc["incremental_outcome"].to_dataframe().reset_index()
+            .pivot_table(index=["channel", "spend_multiplier"], columns="metric", values="incremental_outcome")
+            .add_prefix("incremental_outcome_").reset_index()
+            .merge(rc["spend"].to_dataframe().reset_index(), on=["channel", "spend_multiplier"]))
+    rcdf.to_csv(os.path.join(OUT, "response_curves.csv"), index=False)
+    upload("response_curves.csv")
+    display(rcdf[rcdf.spend_multiplier.isin([0.5, 1.0, 1.5])].set_index(["channel", "spend_multiplier"]).round())  # noqa: F821
+
+# %% [markdown]
+# ## 8. Meridian's standard report
 
 # %%
 if RUN.get("report", True):
@@ -377,19 +449,39 @@ if RUN.get("report", True):
     upload("model_summary.html", "text/html")
 
 # %% [markdown]
-# ## 8. Budget scenarios
+# ## 9. Budget scenarios
 #
 # Meridian re-plans weeks it has seen, so last year's peak flighting stands in for this
 # year's (config `optimisation`).
+#
+# The optimiser reports each split's mean. To say how likely the new split is to beat the
+# current one, both are scored again on every posterior draw, the way the optimiser scores
+# them: each channel's media scaled by its spend ratio, the outcome counted over the period.
 
 # %%
+def per_draw(ds, hist_spend, period):
+    """Total incremental revenue of one allocation, on every posterior draw."""
+    ratio = np.divide(ds["spend"].sel(channel=channels).values, hist_spend,
+                      out=np.zeros(len(channels)), where=hist_spend > 0)
+    media = mmm.media_tensors.media * backend.to_tensor(ratio, dtype=backend.float_dtype)
+    inc = an.incremental_outcome(new_data=tensors.DataTensors(media=media), selected_times=period,
+                                 include_non_paid_channels=False)
+    return np.asarray(inc).sum(axis=-1).ravel()
+
+
+def _q(x, qs=(0.1, 0.5, 0.9)):
+    return [float(v) for v in np.quantile(x, qs)]
+
+
 oc = CFG.get("optimisation")
 if RUN.get("optimise", True) and oc:
     bo = optimizer.BudgetOptimizer(mmm)
     hist = bo.optimize(start_date=oc["start"], end_date=oc["end"], fixed_budget=True,
                        spend_constraint_lower=oc["spend_bound"], spend_constraint_upper=oc["spend_bound"])
     base_budget = float(hist.nonoptimized_data["spend"].sum().values)
-    scen = []
+    hist_spend = hist.nonoptimized_data["spend"].sel(channel=channels).values
+    period = [t for t in mmm.input_data.time.values if oc["start"] <= str(t) <= oc["end"]]
+    scen, draws, stats = [], [], []
     for mult in oc["budget_multipliers"]:
         res = hist if mult == 1.0 else bo.optimize(
             start_date=oc["start"], end_date=oc["end"], fixed_budget=True,
@@ -405,18 +497,37 @@ if RUN.get("optimise", True) and oc:
                              "incremental_outcome_mean": float(
                                  ds["incremental_outcome"].sel(channel=ch, metric="mean").values),
                              "roi_mean": float(ds["roi"].sel(channel=ch, metric="mean").values)})
+        cur, opt = per_draw(res.nonoptimized_data, hist_spend, period), per_draw(res.optimized_data, hist_spend, period)
+        draws.append(pd.DataFrame({"budget_multiplier": mult, "draw": range(len(cur)),
+                                   "current_mix": cur, "optimised": opt}))
+        reported = float(res.nonoptimized_data["incremental_outcome"].sel(metric="mean").sum().values)
+        stats.append({"budget_multiplier": mult, "budget": round(base_budget * mult),
+                      "chance_optimised_beats_current": float((opt > cur).mean()),
+                      "uplift_p10_p50_p90": _q(opt - cur), "uplift_pct_p10_p50_p90": _q(opt / cur - 1),
+                      "current_p10_p50_p90": _q(cur), "optimised_p10_p50_p90": _q(opt),
+                      # the draws re-score what the optimiser scored; a gap here means the two disagree
+                      "current_mean_vs_optimiser": float(cur.mean() / reported - 1)})
     scen = pd.DataFrame(scen)
     scen.to_csv(os.path.join(OUT, "optimisation_scenarios.csv"), index=False)
     upload("optimisation_scenarios.csv")
+    draws = pd.concat(draws)
+    draws.to_csv(os.path.join(OUT, "scenario_draws.csv"), index=False)
+    upload("scenario_draws.csv")
+    # How much to spend, not where: what each step in budget brings back per unit, on every draw.
+    opt1 = draws[draws.budget_multiplier == 1.0].optimised.to_numpy()
+    for s in stats:
+        m = s["budget_multiplier"]
+        if m != 1.0:
+            optm = draws[draws.budget_multiplier == m].optimised.to_numpy()
+            s["return_on_budget_change_p10_p50_p90"] = _q((optm - opt1) / ((m - 1) * base_budget))
     SUMMARY["optimisation"] = {"label": oc.get("label"), "period": [oc["start"], oc["end"]],
                                "historical_media_budget": round(base_budget),
-                               "scenarios": scen.round(2).to_dict(orient="records")}
+                               "scenarios": scen.round(2).to_dict(orient="records"), "draws": stats}
     write_summary()
-    display(scen.pivot_table(index=["budget_multiplier", "channel"], columns="allocation",  # noqa: F821
-                             values="spend").round())
+    display(pd.DataFrame(stats).set_index("budget_multiplier").round(3))  # noqa: F821
 
 # %% [markdown]
-# ## 9. Save the fitted model
+# ## 10. Save the fitted model
 
 # %%
 if RUN.get("save_model", True):

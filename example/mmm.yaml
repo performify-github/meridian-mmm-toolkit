@@ -51,7 +51,7 @@ data:
                                              # (a cloud run needs a gs:// path instead)
   table: your-gcp-project.example_mmm.vw_mmm_weekly_geo   # used when source is bigquery
   window:
-    start: "2023-01-02"                      # first week to model. Aim for 2+ years, never under 18 months
+    start: "2023-01-02"                      # first week to model. Google: 2+ years for a model by market, 3 for a national one
     end: null                                # null = up to the last week in the data
   week_start_day: monday
 
@@ -128,6 +128,14 @@ model:
 # A file next to this one; docs/CHEATSHEET.md §3 explains how to set them.
 priors:
   default: priors.csv
+
+# Lift-test results: each row replaces that channel's benchmark prior with one built from the
+# test (docs/CHEATSHEET.md §3). null = benchmarks only. The example file holds one SIMULATED
+# test, written by: python3 mmm/synthetic.py --config example/mmm.yaml --experiments example/experiments.csv
+# The main fit leaves it out so the example shows the benchmark-only result; the sensitivity
+# grid adds it. A real brand would set default: experiments.csv once it has a test.
+experiments:
+  default: null
 
 # ── 5. How to test it ───────────────────────────────────────────────────────
 # Holdouts hide some weeks from the model, then check how well it predicts them.
@@ -208,6 +216,7 @@ schedule:
 # The readout (mmm/readout.py).
 readout:
   margin: 0.5        # contribution margin, for the profit break-even line (null if unknown)
+  min_chance: 0.8    # move budget when the new split beats the current one in this share of draws; below it, test first
   notes:             # a sentence after each spend column that is counted but not modelled
     brand_search_spend: "Brand search mostly reaches people who already want the brand, so its clicks are used to measure demand instead."
   caveats:

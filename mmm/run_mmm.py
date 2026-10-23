@@ -127,12 +127,15 @@ def build(run: dict, src: pathlib.Path = FIT_SRC, cfg: dict | None = None) -> di
     cells = _cells(src)
     config_yaml = yaml.safe_dump(cfg or CFG, sort_keys=False, allow_unicode=True)
     priors = CONF.priors_path(run.get("priors_file")).read_text() if src == FIT_SRC else ""
-    for text in (config_yaml, priors):
-        assert "'''" not in text, "config and priors may not contain '''"
+    experiments = (CONF.experiments_path(run["experiments_file"]).read_text()
+                   if src == FIT_SRC and run.get("experiments_file") else "")
+    for text in (config_yaml, priors, experiments):
+        assert "'''" not in text, "config, priors and experiments may not contain '''"
     params = (f"# Parameters — injected by run_mmm.py at {dt.datetime.now(dt.UTC):%Y-%m-%d %H:%M} UTC\n"
               f"CONFIG_YAML = r'''{config_yaml}'''\n\n"
               f"PRIORS_CSV = r'''{priors}'''\n\n"
-              f"RUN = {pprint.pformat(run, sort_dicts=False)}\n")
+              + (f"EXPERIMENTS_CSV = r'''{experiments}'''\n\n" if src == FIT_SRC else "")
+              + f"RUN = {pprint.pformat(run, sort_dicts=False)}\n")
     cells.insert(1, {"cell_type": "code", "metadata": {"tags": ["parameters"]}, "source": params,
                      "outputs": [], "execution_count": None})
     for i, c in enumerate(cells):
@@ -161,11 +164,16 @@ def run_settings(a: argparse.Namespace) -> dict:
             sys.exit(f"--demand-control {dc}: {part!r} is not in demand_controls.series")
     if not CONF.priors_path(priors).exists():
         sys.exit(f"--priors {priors}: {CONF.priors_path(priors)} not found")
+    experiments = None if a.no_experiments else pick(a.experiments, "experiments_file")
+    if experiments and not CONF.experiments_path(experiments).exists():
+        sys.exit(f"--experiments {experiments}: {CONF.experiments_path(experiments)} not found")
     run_id = a.run_id or (f"{dt.datetime.now(dt.UTC):%Y%m%d-%H%M}-{kpi}-{sampling}-{a.holdout or 'noholdout'}"
                           f"-k{knots}-f{fourier}-dc{dc.replace('+', '')}"
-                          + (f"-prior{priors_scale:g}" if priors_scale != 1.0 else ""))
+                          + (f"-prior{priors_scale:g}" if priors_scale != 1.0 else "")
+                          + ("-calibrated" if experiments else ""))
     return {"run_id": run_id, "kpi": kpi, "sampling": sampling, "holdout": a.holdout, "knots": knots,
-            "fourier": fourier, "priors_file": priors, "priors_scale": priors_scale, "demand_control": dc,
+            "fourier": fourier, "priors_file": priors, "priors_scale": priors_scale,
+            "experiments_file": experiments, "demand_control": dc,
             "window_end": a.window_end or d["window_end"],
             "optimise": d["optimise"] and not a.no_optimise, "report": d["report"] and not a.no_report,
             "save_model": d["save_model"] and not a.no_save, "template": a.template}
@@ -632,6 +640,8 @@ def _parser() -> argparse.ArgumentParser:
         s.add_argument("--no-demand-control", action="store_true")
         s.add_argument("--priors", help="priors CSV next to the config (default: priors.default)")
         s.add_argument("--priors-scale", type=float, help="multiply every prior range (sensitivity runs)")
+        s.add_argument("--experiments", help="lift-test results CSV next to the config (default: experiments.default)")
+        s.add_argument("--no-experiments", action="store_true", help="fit on the benchmark priors alone")
         s.add_argument("--window-end", help="last week start to include (YYYY-MM-DD)")
         s.add_argument("--no-optimise", action="store_true")
         s.add_argument("--no-report", action="store_true")

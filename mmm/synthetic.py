@@ -3,10 +3,14 @@
 
     python3 mmm/synthetic.py --config example/mmm.yaml            # → data.csv from the config
     python3 mmm/synthetic.py --config example/mmm.yaml --weeks 156 --out /tmp/demo.csv
+    python3 mmm/synthetic.py --config example/mmm.yaml --experiments example/experiments.csv
 
 For trying the toolkit end to end with no client data, and for checking that a model
-recovers returns you know. Next to the CSV it writes `<name>.truth.json`: the true ROI and
-share of orders for each channel.
+recovers returns you know. Next to the CSV it writes `<name>.truth.json`: for each channel the
+true ROI, the true return on the next unit of spend and its true share of orders, plus the
+paid share of orders, and what an eight-week lift test in the biggest market would read.
+`--experiments` also writes the first conversion channel's test as a lift-test results file
+(config `experiments`), with the standard error a well-powered test reports.
 
 How the fake brand behaves (deliberately the traps a real model has to handle):
 - **Demand** rises into a Christmas peak, grows a little each year and wanders week to week.
@@ -36,6 +40,7 @@ import config as cfgmod  # noqa: E402
 
 TRUE_ROI = {"convert": [1.8, 1.3, 2.2], "upper": [1.1, 0.7, 1.4]}   # true revenue per unit of spend, by channel type
 DECAY = {"convert": 0.3, "upper": 0.6}      # weekly carry-over
+LIFT_TEST = {"start_week": 70, "weeks": 8, "relative_se": 0.2}   # mid-year, outside the peak; a well-powered test
 
 
 def _adstock(x, decay):
@@ -73,6 +78,13 @@ def generate(conf: cfgmod.Config, weeks: int, seed: int):
     rows, effects = [], {ch: 0.0 for ch in channels}
     spend_tot = {ch: 0.0 for ch in channels}
     orders_tot = 0.0
+    # The answer key beyond ROI. None of it draws from rng, so the data is the same with or without it.
+    extra_orders = {ch: 0.0 for ch in channels}       # expected incremental orders
+    next_unit = {ch: 0.0 for ch in channels}          # extra revenue from 1% more spend in every week
+    expected_orders = 0.0
+    test_geo = max(pops, key=pops.get)
+    tw = slice(LIFT_TEST["start_week"], LIFT_TEST["start_week"] + LIFT_TEST["weeks"])
+    lift = {}
 
     # Upper-funnel flights: three a year, six weeks each, one always starting in early November.
     flights = {}
@@ -119,8 +131,22 @@ def generate(conf: cfgmod.Config, weeks: int, seed: int):
             incr += eff
             effects[ch] += float((eff * aov).sum())
             spend_tot[ch] += float(spend.sum())
+            extra_orders[ch] += float(eff.sum())
+            x_up = 1.01 * x                                      # adstock is linear in spend
+            next_unit[ch] += float((beta * x_up / (x_up + half) - eff) @ aov)
+            if g == test_geo and spend[tw].sum() > 0:
+                # A lift test switches the channel off for the test weeks and reads the orders lost in
+                # those weeks only, so carry-over after the test is missed, as it is in a real test.
+                off = spend.copy()
+                off[tw] = 0.0
+                x_off = _adstock(off, DECAY[kind[ch]])
+                lost = (eff - beta * x_off / (x_off + half))[tw] @ aov[tw]
+                lift[ch] = {"geo": g, "start": str(week[tw.start].date()),
+                            "end": str((week[tw.stop - 1] + pd.Timedelta(days=6)).date()),
+                            "spend": round(float(spend[tw].sum()), 2), "true_test_roi": round(float(lost / spend[tw].sum()), 3)}
 
         upper_lift = 1 + 0.15 * sum(_adstock(flights[ch].astype(float), 0.5) for ch in channels if kind[ch] == "upper")
+        expected_orders += float((base_orders + incr).sum())
         orders = rng.poisson(base_orders + incr)
         orders_tot += float(orders.sum())
         new = rng.binomial(orders, 0.82)
@@ -145,9 +171,31 @@ def generate(conf: cfgmod.Config, weeks: int, seed: int):
             df[ch] = 0.0
     truth = {"seed": seed, "weeks": weeks,
              "channels": {ch: {"true_roi": round(effects[ch] / spend_tot[ch], 3),
-                               "kind": kind[ch], "weekly_decay": DECAY[kind[ch]]} for ch in channels},
-             "note": "true_roi = incremental revenue ÷ spend over the whole window, all geos"}
+                               "true_mroi": round(next_unit[ch] / (0.01 * spend_tot[ch]), 3),
+                               "true_share_of_orders_pct": round(100 * extra_orders[ch] / expected_orders, 2),
+                               "kind": kind[ch], "weekly_decay": DECAY[kind[ch]],
+                               **({"lift_test": lift[ch]} if ch in lift else {})} for ch in channels},
+             "paid_share_of_orders_pct": round(100 * sum(extra_orders.values()) / expected_orders, 2),
+             "note": "true_roi = incremental revenue ÷ spend over the whole window, all geos; true_mroi = "
+                     "the same for 1% more spend in every week; shares are of expected orders; lift_test = what "
+                     "switching the channel off in one geo for eight weeks would read, before measurement noise"}
     return df, truth
+
+
+def experiments_csv(truth: dict) -> str:
+    """The first conversion channel's lift test as a results file: the test's true reading, with
+    the standard error a well-powered test reports. A real reading lands within one standard
+    error of the truth about two times in three."""
+    found = next(((c, v) for c, v in truth["channels"].items() if v["kind"] == "convert" and "lift_test" in v), None)
+    if found is None:
+        sys.exit(f"no lift test: the data needs more than {LIFT_TEST['start_week'] + LIFT_TEST['weeks']} weeks")
+    ch, v = found
+    t = v["lift_test"]
+    se = LIFT_TEST["relative_se"] * t["true_test_roi"]
+    return ("channel,start,end,estimate,standard_error,kpi_type,spend,status,source\n"
+            f"{ch},{t['start']},{t['end']},{t['true_test_roi']:.3f},{se:.3f},revenue,{t['spend']:.2f},SIMULATED,"
+            f"\"Synthetic brand: channel off in {t['geo']} for {LIFT_TEST['weeks']} weeks; the true reading, "
+            f"with a {LIFT_TEST['relative_se']:.0%} standard error\"\n")
 
 
 def main() -> None:
@@ -156,6 +204,7 @@ def main() -> None:
     p.add_argument("--weeks", type=int, default=156)
     p.add_argument("--seed", type=int, default=7)
     p.add_argument("--out", help="default: the config's data.csv")
+    p.add_argument("--experiments", help="also write a simulated lift-test results file here")
     a = p.parse_args()
     conf = cfgmod.load(a.config)
     out = pathlib.Path(a.out or conf.cfg["data"]["csv"] or "synthetic.csv")
@@ -163,6 +212,9 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)
     out.with_suffix(".truth.json").write_text(json.dumps(truth, indent=1))
+    if a.experiments:
+        pathlib.Path(a.experiments).write_text(experiments_csv(truth))
+        print(a.experiments)
     print(f"{out}: {len(df)} rows, {df['week_start'].nunique()} weeks × {df['geo'].nunique()} geos "
           f"({dt.date.fromisoformat(df['week_start'].min())} → {df['week_start'].max()})")
     print(json.dumps(truth["channels"], indent=1))

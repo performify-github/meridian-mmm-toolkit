@@ -101,7 +101,19 @@ produce confident nonsense. So set them deliberately and show them.
    short-term, online-only model sees little of them. A wide prior says so honestly.
 5. **Test the choice:** the sensitivity grid halves and doubles every range (`--priors-scale`).
    If a channel's answer moves with it, the data had little to say about that channel: report
-   it as prior-led.
+   it as prior-led. The readout shows each prior's range next to the model's, and flags any
+   channel whose range the data barely narrowed.
+
+**Lift tests replace benchmarks.** A test result (a geo holdout, a conversion lift study, a
+brand on/off test) goes in `experiments.csv`, one row per test: channel, dates, the measured
+return per unit of spend and its standard error, and the spend the test covered. Point
+`experiments.default` (or `--experiments`) at the file, and that channel's prior is built from
+the test instead of the benchmark. Meridian adjusts the test before using it: it widens the
+uncertainty when the test's daily spend is far from the channel's usual level (a test in one
+market of four), when it's short, and when it's old. So a small, old test counts for much less
+than its headline standard error suggests. Run tests close to the refit, at a realistic share of
+the channel's spend. Keep `--no-experiments` in the sensitivity grid to show what the tests
+changed.
 
 ---
 
@@ -123,11 +135,12 @@ flowchart LR
 6. **Plan:** the optimiser re-splits a budget within limits, and the Scenario Planner lets
    people try their own.
 7. **Test, then repeat:** the weakest estimates become experiments (geo holdouts, lift tests),
-   and the results go back in as priors.
+   and the results go back in through `experiments.csv` (§3).
 
-**Prerequisites.** At least 18 months of weekly data (two-plus years is better), for every
-major channel, and a tidy data source. Below that, the model can't separate the channels.
-Don't soften this to win the work.
+**Prerequisites.** Google's rule of thumb is two years of weekly data for a model by market and
+three for a national one, for every major channel, and a tidy data source. It's a starting
+point: the real need depends on how many channels you model and how much their spend varies.
+Below it, the model can't separate the channels. Don't soften this to win the work.
 
 ---
 
@@ -155,6 +168,20 @@ Don't soften this to win the work.
   - Posterior close to the prior: the data had little to say. The prior is doing the work.
   - Posterior far from the prior: the data was informative, *or* something is confounding it.
     Find out which.
+
+### Turning ranges into decisions
+
+The optimiser's uplift is an average. The readout also scores the current and the new split on
+every draw from the model, which answers the question a budget owner actually asks: *how likely
+is the new split to do better?*
+
+- **Move budget when the new split wins in at least 80% of draws** (`readout.min_chance`).
+  Below that, test the change before making it.
+- **Read the downside, not just the middle.** The readout gives the uplift for the middle 80%
+  of draws; in nine draws out of ten the change does at least as well as the low end.
+- **Ask how much to spend, not just where.** For −20% and +20% budgets the readout gives what
+  each pound cut loses, or each extra pound brings back, with its range. Compare it with the
+  margin: at peak spend an extra pound often brings back well under break-even.
 
 ### Meridian's reports
 
@@ -225,6 +252,15 @@ knots; no seasonal waves; the other KPI. Report what holds steady separately fro
    bounds (±30% is sensible).
 6. **The model isn't the truth.** Use it to decide **what to test next**, then feed the test
    results back in.
+7. **A new channel with a few months of spend.** On its own it just returns its prior, and
+   any weeks it shares with a sibling channel can't be split between them. *Fix:* pool it with
+   the channel that plays the same role at a similar cost (a new social platform's reach
+   campaigns with the existing reach group), and give it its own channel once it has about six
+   months of spend that moves independently. The prior-vs-posterior check says when it's ready.
+8. **A lift test doesn't fix a missing control.** On the synthetic brand, one simulated
+   eight-week test in one market, from 18 months before the data ends, moved the uncontrolled
+   PMax return from 3.30 only to 3.02 (true value 1.80): Meridian discounted it for its small
+   spend and its age. The demand control did the heavy lifting; the test refines it.
 
 ---
 
@@ -244,6 +280,7 @@ knots; no seasonal waves; the other KPI. Report what holds steady separately fro
 | **Incrementality** | What wouldn't have happened without the spend |
 | **Knots** | Points where the baseline can bend over time |
 | **KPI** | The thing being explained: orders, new customers, revenue |
+| **Lift test** | An experiment that switches a channel off (or on) for some markets or people and measures the difference |
 | **MCMC / NUTS** | The sampling method that produces thousands of plausible models |
 | **Posterior** | What the model believes after seeing the data |
 | **Prior** | What you believe before the model sees the data |

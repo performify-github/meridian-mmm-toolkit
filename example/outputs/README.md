@@ -8,7 +8,7 @@ of every channel, so you can see how close the model gets, and where it goes wro
 |---|---|
 | [`model_summary.html`](model_summary.html) | Meridian's own report for the main fit: model fit, contribution, ROI, response curves |
 | [`optimisation_x1.0.html`](optimisation_x1.0.html) | Meridian's budget report: the same Nov–Dec budget, re-split within ±30% per channel |
-| [`readout/readout.md`](readout/readout.md) | The toolkit's plain-English readout, with its charts |
+| [`readout/readout.md`](readout/readout.md) | The toolkit's plain-English readout, with its charts: return per channel, priors against posteriors, response curves, and the budget scenarios with the chance each new split wins |
 
 GitHub shows the HTML files as code. Download them and open them in a browser to see the reports.
 
@@ -18,6 +18,8 @@ All runs used `--sampling standard` on a laptop (about 5 minutes each). Reproduc
 python3 mmm/synthetic.py --config example/mmm.yaml
 python3 mmm/run_mmm.py --config example/mmm.yaml local --sampling standard --run-id example-main
 ```
+
+The fits are reproducible: re-running them on 23 Oct 2026 gave the same numbers to two decimals.
 
 ## What the example teaches
 
@@ -41,6 +43,19 @@ demand is already high, and its brand-search clicks are partly *caused* by its v
    those clicks. Controlling for them takes some of the ads' credit away. A Google Trends-only run
    shows how much, and here it recovers every channel. On real data you don't know the truth,
    so run both and report the range.
+4. **The baseline split shows the same trap.** Paid media truly drives 20% of orders
+   (`paid_share_of_orders_pct` in `synthetic.truth.json`). The main fit says 21% (16–28%); with no
+   demand control, 31% (25–38%).
+5. **A lift test refines the answer; it doesn't rescue a missing control.** `experiments.csv`
+   holds one simulated test for PMax: eight weeks in one market, reading the true return (1.76)
+   with a 20% standard error. Meridian widened that error from 0.35 to 0.79, because the test's
+   daily spend was a third of the channel's usual level and it ended 18 months before the data
+   does. Added to the main fit, it moved PMax from 2.29 to 2.18 (1.40–3.30). Added to the run
+   with no demand control, from 3.30 only to 3.02 (2.05–4.23), still far above the true 1.80.
+6. **The re-split is safe; more budget isn't.** Scored on every posterior draw, re-splitting the
+   Nov–Dec budget beats the current split in all of them (+4.2% to +9.1% for the middle 80%). An
+   extra 20% of budget brings back about 35p per extra £1 (27p to 45p), far below the £2 a 50%
+   margin needs.
 
 **How far to trust it** (the three holdouts, from the readout):
 

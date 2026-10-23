@@ -62,3 +62,28 @@ def test_readout_margin_must_be_a_share(brand):
     p = edit(brand, lambda c: c["readout"].update(margin=50))
     with pytest.raises(config.ConfigError, match="readout.margin"):
         config.load(p)
+
+
+def test_experiments_file_is_checked(brand):
+    p = edit(brand, lambda c: c["experiments"].update(default="experiments.csv"))
+    assert config.run_defaults(config.load(p))["experiments_file"] == "experiments.csv"
+    rows = (brand / "experiments.csv").read_text().splitlines()
+    (brand / "experiments.csv").write_text("\n".join([rows[0], rows[1].replace("google_convert", "tv", 1)]) + "\n")
+    with pytest.raises(config.ConfigError, match="'tv' is not a channel"):
+        config.load(p)
+
+
+def test_experiment_needs_a_positive_standard_error(brand):
+    p = edit(brand, lambda c: c["experiments"].update(default="experiments.csv"))
+    head, row = (brand / "experiments.csv").read_text().splitlines()[:2]
+    f = row.split(",")
+    f[4] = "0"                                  # standard_error
+    (brand / "experiments.csv").write_text(head + "\n" + ",".join(f) + "\n")
+    with pytest.raises(config.ConfigError, match="standard_error and spend must be positive"):
+        config.load(p)
+
+
+def test_readout_min_chance_must_be_a_share(brand):
+    p = edit(brand, lambda c: c["readout"].update(min_chance=80))
+    with pytest.raises(config.ConfigError, match="readout.min_chance"):
+        config.load(p)

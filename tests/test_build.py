@@ -8,6 +8,7 @@ import run_mmm
 def args(**kw):
     base = dict(cmd="build", run_id=None, kpi=None, sampling=None, holdout=None, knots=None, fourier=None,
                 demand_control=None, no_demand_control=False, priors=None, priors_scale=None, window_end=None,
+                experiments=None, no_experiments=False,
                 no_optimise=False, no_report=False, no_save=False, template="cpu", timeout=None, out="build")
     base.update(kw)
     return argparse.Namespace(**base)
@@ -42,3 +43,14 @@ def test_every_grid_line_parses(brand):
         for line in run_mmm.read_grid(grid):
             a = parser.parse_args(["--config", str(brand / "mmm.yaml"), "submit", *line])
             run_mmm.run_settings(a)
+
+
+def test_experiments_go_into_the_notebook_only_when_asked(brand):
+    run_mmm.init(brand / "mmm.yaml")
+    ns = {}
+    exec(run_mmm.build(run_mmm.run_settings(args(run_id="t2")))["cells"][1]["source"], ns)
+    assert ns["EXPERIMENTS_CSV"] == "" and ns["RUN"]["experiments_file"] is None
+    run = run_mmm.run_settings(args(experiments="experiments.csv"))
+    assert run["run_id"].endswith("-calibrated")
+    exec(run_mmm.build(run)["cells"][1]["source"], ns)
+    assert ns["EXPERIMENTS_CSV"].startswith("channel,start,end")

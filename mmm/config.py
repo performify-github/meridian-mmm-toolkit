@@ -46,6 +46,7 @@ DEFAULTS: dict = {
     "model": {"max_lag": 8, "knots": "monthly", "fourier": 2},
     "holdouts": {},
     "priors": {"default": "priors.csv"},
+    "experiments": {"default": None},
     "guardrails": {"max_unmapped_spend_share": 0.01, "unmapped_spend_col": None,
                    "unmapped_geo_spend_col": None, "other_spend_cols": []},
     "optimisation": None,
@@ -60,14 +61,15 @@ DEFAULTS: dict = {
     "main_run_marker": "main",
     "planner": {"spreadsheet_id": None, "name": None, "min_shift": 0.5, "max_shift": 1.0},
     "schedule": {"cron": "TZ=Europe/London 0 6 7 1,4,7,10 *", "grid": "refresh.txt"},
-    "readout": {"caveats": [], "palette": {}, "margin": None, "notes": {}},
+    "readout": {"caveats": [], "palette": {}, "margin": None, "notes": {}, "min_chance": 0.8},
     "trends": None,
     "sql": None,
 }
 
 # What a run can set (CLI flags / main_fit / grid lines); the rest of the config is per brand.
 RUN_KEYS = ("kpi", "sampling", "holdout", "knots", "fourier", "priors_file", "priors_scale",
-            "demand_control", "window_end", "optimise", "report", "save_model")
+            "experiments_file", "demand_control", "window_end", "optimise", "report", "save_model")
+EXPERIMENT_COLS = ("channel", "start", "end", "estimate", "standard_error", "kpi_type", "spend")
 
 
 class ConfigError(ValueError):
@@ -85,6 +87,9 @@ class Config:
 
     def priors_path(self, name: str | None = None) -> pathlib.Path:
         return self.dir / (name or self.cfg["priors"]["default"])
+
+    def experiments_path(self, name: str) -> pathlib.Path:
+        return self.dir / name
 
     def grid_path(self, name: str) -> pathlib.Path:
         p = pathlib.Path(name)
@@ -275,6 +280,36 @@ def validate(conf: Config) -> list[str]:
         if len(masses) > 1:
             e.append(f"{name}: every row must use the same mass (Meridian takes one mass for all ranges)")
 
+    ef = c["experiments"]["default"]
+    for name in {ef, c["main_fit"].get("experiments_file")} - {None}:
+        if "/" in str(name):
+            e.append(f"experiments: {name!r} must be a file name next to the config, not a path")
+            continue
+        p = conf.experiments_path(name)
+        if not p.exists():
+            e.append(f"experiments: {p} not found")
+            continue
+        for i, r in enumerate(read_priors(p), start=2):
+            where = f"{name} line {i}"
+            missing = [k for k in EXPERIMENT_COLS if not (r.get(k) or "").strip()]
+            if missing:
+                e.append(f"{where}: missing {', '.join(missing)}")
+                continue
+            if r["channel"] not in c["channels"]:
+                e.append(f"{where}: {r['channel']!r} is not a channel")
+            if r["kpi_type"] not in ("revenue", "non_revenue"):
+                e.append(f"{where}: kpi_type must be revenue (estimate = revenue per unit of spend) or "
+                         "non_revenue (estimate = extra KPI per unit of spend)")
+            ds, de = _date(r["start"], f"{where} start", e), _date(r["end"], f"{where} end", e)
+            if ds and de and ds >= de:
+                e.append(f"{where}: start {ds} must be before end {de}")
+            try:
+                if float(r["standard_error"]) <= 0 or float(r["spend"]) <= 0:
+                    e.append(f"{where}: standard_error and spend must be positive")
+                float(r["estimate"])
+            except ValueError:
+                e.append(f"{where}: estimate, standard_error and spend must be numbers")
+
     mf = c["main_fit"]
     for k in mf:
         if k not in RUN_KEYS:
@@ -311,6 +346,9 @@ def validate(conf: Config) -> list[str]:
     m = c["readout"].get("margin")
     if m is not None and not (isinstance(m, (int, float)) and 0 < m <= 1):
         e.append("readout.margin: a contribution margin between 0 and 1 (e.g. 0.5), or null")
+    mc = c["readout"].get("min_chance")
+    if not (isinstance(mc, (int, float)) and 0.5 <= mc < 1):
+        e.append("readout.min_chance: the share of draws a new split must win before budget moves, 0.5 to <1")
 
     t = c["trends"]
     if t:
@@ -375,6 +413,7 @@ def run_defaults(conf: Config) -> dict:
         "fourier": int(mf.get("fourier", c["model"]["fourier"])),
         "priors_file": mf.get("priors_file", c["priors"]["default"]),
         "priors_scale": float(mf.get("priors_scale", 1.0)),
+        "experiments_file": mf.get("experiments_file", c["experiments"]["default"]),
         "demand_control": mf.get("demand_control", c["demand_controls"]["default"]) or "none",
         "window_end": mf.get("window_end"),
         "optimise": bool(mf.get("optimise", c["optimisation"] is not None)),

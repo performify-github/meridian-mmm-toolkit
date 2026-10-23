@@ -21,7 +21,10 @@ config file, not new code.
 - **One config file per brand** ([`example/mmm.yaml`](example/mmm.yaml)). Markets, channels,
   priors, tests, cloud names and the planner sheet all live there. Nothing else needs editing.
 - **A model notebook** that fits Meridian, checks it, reports ROI with honest ranges, runs
-  budget scenarios and saves the model.
+  budget scenarios and saves the model. Each budget split is scored on every posterior draw,
+  so the readout can say how likely a new split is to beat the current one.
+- **Lift-test calibration:** test results in `experiments.csv` replace a channel's benchmark
+  prior, through Meridian 2.1's calibration adjustments.
 - **Built-in protection against the classic mistakes:** a demand control (so brand-harvesting
   channels can't take credit for existing demand), three kinds of holdout test, and guardrails
   that stop a run if spend goes missing.
@@ -61,12 +64,12 @@ flowchart LR
 |---|---|---|
 | 1. Shape the data: one row per geo per week | `data`, `geos`, `kpis`, `channels`, `sql` | [`sql_views.py`](mmm/sql_views.py), [`synthetic.py`](mmm/synthetic.py), `run_mmm.py check --data` |
 | 2. Control for demand | `demand_controls` | [`trends.py`](mmm/trends.py); [`fit.py`](mmm/fit.py) §2 |
-| 3. Set priors | [`priors.csv`](example/priors.csv) | `fit.py` §3; [cheat sheet §3](docs/CHEATSHEET.md#3-setting-priors) |
+| 3. Set priors, and add lift tests | [`priors.csv`](example/priors.csv), `experiments` ([`experiments.csv`](example/experiments.csv)) | `fit.py` §3; [cheat sheet §3](docs/CHEATSHEET.md#3-setting-priors) |
 | 4. Shape the seasons: knots and Fourier terms | `model` | `fit.py` §2 (Fourier) and §3 (knots) |
 | 5. Hold out weeks to test it | `holdouts` | `fit.py` §3; [`grids/validation.txt`](example/grids/validation.txt) |
 | 6. Change one thing at a time | `main_fit` | [`grids/sensitivity.txt`](example/grids/sensitivity.txt); `run_mmm.py queue` |
-| 7. Fit and review | `sampling` | `fit.py` §4–6; `run_mmm.py local` or `submit` |
-| 8. Budget scenarios | `optimisation` | `fit.py` §8 |
+| 7. Fit and review | `sampling` | `fit.py` §4–7; `run_mmm.py local` or `submit` |
+| 8. Budget scenarios | `optimisation`, `readout.min_chance` | `fit.py` §9; the readout's scenario section |
 | 9. Scenario Planner | `planner` | [`scenario_planner.py`](mmm/scenario_planner.py); `run_mmm.py planner`, `publish` |
 | 10. Run it in the cloud, every quarter | `gcp`, `schedule` | [`orchestrator.py`](mmm/orchestrator.py); `run_mmm.py sync`, `orchestrate`, `schedule` |
 | Explain it to people | `readout` | [`readout.py`](mmm/readout.py) |
@@ -281,7 +284,8 @@ Every command takes `--config <brand>/mmm.yaml` (or set `MMM_CONFIG`).
 **Run settings** are flags, and anything you don't set comes from `main_fit`:
 `--kpi`, `--sampling smoke|quick|standard`, `--holdout <name>`, `--knots monthly|quarterly|aks|<n>`,
 `--fourier <pairs>`, `--demand-control clicks+trends|none`, `--priors <file>`,
-`--priors-scale 0.5`, `--window-end YYYY-MM-DD`, `--no-optimise`, `--no-report`, `--no-save`.
+`--priors-scale 0.5`, `--experiments <file>`, `--no-experiments`, `--window-end YYYY-MM-DD`,
+`--no-optimise`, `--no-report`, `--no-save`.
 
 **Grid files** (`grids/*.txt`) hold one line of flags per run, each with a `--run-id`.
 `{date}` in a run id becomes today's date. The examples:
@@ -299,10 +303,12 @@ Cloud runs write to `gs://<bucket>/<prefix>/runs/<run_id>/`; local runs to `runs
 
 | File | What's in it |
 |---|---|
-| `run_summary.json` | The headline numbers: data totals, convergence, Meridian's review, holdout accuracy, ROI / marginal ROI / share per channel with 90% ranges, budget scenarios |
+| `run_summary.json` | The headline numbers: data totals, convergence, Meridian's review, holdout accuracy, ROI / marginal ROI / share per channel with 90% ranges and the prior's range, any lift tests used, budget scenarios with the chance each new split wins and its uplift range |
 | `model_summary.html` | Meridian's own report: fit, contribution, ROI, response curves |
 | `optimisation_x0.8 / x1.0 / x1.2.html` | Budget scenarios at −20%, the same and +20% |
 | `summary_metrics.csv`, `predictive_accuracy.csv`, `optimisation_scenarios.csv` | The full tables |
+| `response_curves.csv` | Revenue against spend per channel, 0–2× today's spend, with 90% ranges |
+| `scenario_draws.csv` | Each budget scenario's current and optimised split, scored on every posterior draw |
 | `model.binpb` | The fitted model (`meridian.schema.serde.meridian_serde.load_meridian`) |
 | `notebook.ipynb` (+ `executed/` in the cloud) | Exactly what ran: config, priors and settings are in its second cell |
 
@@ -346,6 +352,13 @@ and population are added by the notebook.
   search-term insights, before calling PMax incremental.
 - **"New customer" flags in commerce data often mean "has only ever ordered once"**, not "first
   order". The SQL works out first orders itself.
+- **Meridian 2.1's `CalibrationBuilder.build()` doesn't work on the JAX backend**: the
+  mixed-family prior it returns fails inside the sampler and can't be saved. `fit.py` uses the
+  builder's registry for Meridian's adjustments, then matches each calibrated prior to a
+  LogNormal with the same mean and spread.
+- **A lift test counts for less than its own standard error suggests.** Meridian widens it for
+  a spend level far from the channel's usual one, a short test and an old one. The example's
+  one-market, eight-week test went in with its standard error more than doubled.
 - **Download BigQuery results over REST** (`create_bqstorage_client=False`) unless the service
   account also has Read Session User. The frame is small anyway.
 - **The planner's Looker Studio connector rejects a bare `/d/<id>` sheet URL.** `publish`
@@ -366,7 +379,7 @@ mmm/
   trends.py            Google Trends → a demand series per geo
   synthetic.py         a fake brand with known true returns
   readout.py           a plain-English markdown readout with charts
-example/               the fictional brand: mmm.yaml, priors.csv, grids/, sql/, data/, outputs/
+example/               the fictional brand: mmm.yaml, priors.csv, experiments.csv, grids/, sql/, data/, outputs/
 docs/                  CHEATSHEET.md, ASSUMPTIONS_TEMPLATE.md
 tests/                 python3 -m pytest tests   (MMM_SLOW=1 adds a real local fit)
 ```

@@ -9,3 +9,4 @@
 --sampling standard --knots quarterly --no-optimise --no-report --no-save --run-id sens{date}-quarterly-knots
 --sampling standard --fourier 0 --no-optimise --no-report --no-save --run-id sens{date}-no-fourier
 --sampling standard --kpi new_customers --no-optimise --no-report --no-save --run-id sens{date}-new-customers
+--sampling standard --experiments experiments.csv --no-optimise --no-report --no-save --run-id sens{date}-lift-test
