@@ -1,5 +1,6 @@
 # Local runs (Python 3.11 to 3.13, as Meridian 2.1 supports; tested on 3.12).
 # Cloud runs install what they need on the Colab runtime; a laptop only needs the last block.
+# Install with the pinned versions (Python 3.12 or 3.13): pip install -r requirements.txt -c constraints.txt
 google-meridian[schema,scenarioplanner]==2.1.0
 matplotlib
 pytrends            # mmm/trends.py only

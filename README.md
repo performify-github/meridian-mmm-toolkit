@@ -75,13 +75,15 @@ flowchart LR
 
 ## Try it in five minutes (no cloud, no client data)
 
-You need Python 3.11 to 3.13 (what Meridian 2.1 supports). The toolkit is tested on 3.12.
+You need Python 3.11 to 3.13 (what Meridian 2.1 supports). `constraints.txt` pins versions tested
+together on 3.12 and 3.13. On 3.11, leave off `-c constraints.txt`: current JAX needs 3.12, so pip
+picks an older release, which passes the same tests.
 
 ```bash
 git clone https://github.com/performify-github/meridian-mmm-toolkit.git
 cd meridian-mmm-toolkit
 python3.12 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt -c constraints.txt
 
 python3 mmm/synthetic.py --config example/mmm.yaml          # a fake brand, with known true returns
 python3 mmm/run_mmm.py --config example/mmm.yaml check --data
