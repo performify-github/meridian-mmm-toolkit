@@ -1,4 +1,4 @@
-# Local runs (Python 3.11 or 3.12; Meridian doesn't support 3.13+ yet).
+# Local runs (Python 3.11 to 3.13, as Meridian 2.1 supports; tested on 3.12).
 # Cloud runs install what they need on the Colab runtime; a laptop only needs the last block.
 google-meridian[schema,scenarioplanner]==2.1.0
 matplotlib

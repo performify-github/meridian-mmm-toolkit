@@ -92,9 +92,11 @@ produce confident nonsense. So set them deliberately and show them.
 2. **Convert to the model's units.** Many studies report *profit* ROI. The model works in
    *revenue*. Revenue ROI = profit ROI ÷ contribution margin. Use the brand's real margin, and
    log it as a placeholder until you have it.
-3. **Cap lower-funnel channels at platform-reported ROAS** (converted to the same revenue
-   basis, e.g. excluding VAT and shipping). Incrementality shouldn't beat attribution for
-   channels that harvest demand.
+3. **Use platform-reported ROAS as a plausibility check for lower-funnel channels**
+   (converted to the same revenue basis, e.g. excluding VAT and shipping). Set the top of the
+   range near it, so a demand-harvesting channel has to earn a higher return from the data. It
+   isn't a hard ceiling: about 5% of a 90%-range LogNormal prior sits above the top, and
+   attribution windows and offline sales can legitimately put the true return either side of it.
 4. **Keep upper-funnel ranges wide.** Video and reach work slowly and partly offline, so a
    short-term, online-only model sees little of them. A wide prior says so honestly.
 5. **Test the choice:** the sensitivity grid halves and doubles every range (`--priors-scale`).
@@ -207,8 +209,9 @@ knots; no seasonal waves; the other KPI. Report what holds steady separately fro
    - *Why:* they spend more when demand is already high.
    - *Symptom:* ROI above the platform's own ROAS that barely moves when its prior is halved.
      The health checks can all pass: nothing in them looks for this.
-   - *Fix:* a demand control, ideally one the ads can't move (Google Trends for the brand
-     topic), and ideally a test.
+   - *Fix:* a demand control, ideally one less tied to the ads than brand clicks (Google
+     Trends for the brand topic; upper-funnel ads can still raise it), and ideally a test.
+     Meridian 2.0's full-funnel framework (branded search volume as a brand signal) is another route.
    - *The catch:* brand-search clicks are partly *caused* by video and awareness ads, so
      controlling for them understates the upper funnel. A Trends-only run shows by how much.
 2. **Everything peaks at Christmas.** Media, promotions and demand all spike together, so

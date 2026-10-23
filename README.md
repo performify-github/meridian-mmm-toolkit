@@ -75,7 +75,7 @@ flowchart LR
 
 ## Try it in five minutes (no cloud, no client data)
 
-You need Python 3.11 or 3.12 (Meridian doesn't support 3.13+ yet).
+You need Python 3.11 to 3.13 (what Meridian 2.1 supports). The toolkit is tested on 3.12.
 
 ```bash
 git clone https://github.com/performify-github/meridian-mmm-toolkit.git
@@ -339,8 +339,9 @@ and population are added by the notebook.
 - **A lower-funnel ROI above the platform's own reported ROAS is a warning, not a win.** If it
   barely moves when you halve its prior, demand is leaking into it. Add or strengthen the demand
   control; don't tune the prior to hide it.
-- **PMax brand exclusions don't stop its Shopping ads serving on brand searches.** Check the
-  campaign's search-term insights before calling PMax incremental.
+- **PMax brand exclusions cover Search and Shopping by default, but there's an option to keep
+  Shopping ads serving on excluded brand terms.** Check which one the campaign uses, and read its
+  search-term insights, before calling PMax incremental.
 - **"New customer" flags in commerce data often mean "has only ever ordered once"**, not "first
   order". The SQL works out first orders itself.
 - **Download BigQuery results over REST** (`create_bqstorage_client=False`) unless the service

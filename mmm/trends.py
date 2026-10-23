@@ -5,8 +5,8 @@
     python3 mmm/trends.py --config B/mmm.yaml load --csv trends.csv    # build geo series → BigQuery
     python3 mmm/trends.py --config B/mmm.yaml load --csv trends.csv --geo-csv geo.csv   # or → a CSV
 
-Why Trends: it measures how many people search for the brand, and the ads can't switch it
-on and off the way they can brand-search clicks. Use the brand's language-independent
+Why Trends: it measures how many people search for the brand, and it is less tied to ad delivery
+than brand-search clicks (upper-funnel ads can still raise it, but can't switch it on and off). Use the brand's language-independent
 TOPIC id (config `trends.topic`), so searches in every language count.
 
 How the series is built (config `trends`):

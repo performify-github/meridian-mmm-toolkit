@@ -100,7 +100,7 @@ demand_controls:
     clicks: brand_search_clicks              # brand-search clicks: tracks demand closely
     impressions: brand_search_impressions
     proxy: brand_search_eligible_impressions # impressions ÷ impression share. Weak; drops to 0 when brand search pauses
-    trends: brand_trends_index               # Google Trends for the brand topic (mmm/trends.py). Ads can't move it
+    trends: brand_trends_index               # Google Trends for the brand topic (mmm/trends.py). Less tied to ad delivery than clicks
   default: clicks+trends
 
 # Other things that move sales but aren't caused by the ads.
@@ -216,7 +216,8 @@ readout:
     - "**Channels outside the model** (email, TV, influencers) may have their effect credited to the paid media that ran at the same time."
 
 # ── 8. Google Trends (optional) ─────────────────────────────────────────────
-# A demand series that the ads can't move. Use the brand's TOPIC (search the brand
+# A demand series less tied to the ads than brand clicks (upper-funnel ads can still
+# raise it). Use the brand's TOPIC (search the brand
 # on trends.google.com and pick the entry marked "Topic"; the id is in the URL),
 # so searches in every language count.
 trends:
